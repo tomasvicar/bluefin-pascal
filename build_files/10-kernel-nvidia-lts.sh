@@ -64,9 +64,18 @@ nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place
 rm -f /etc/yum.repos.d/nvidia-container-toolkit.repo
 
 ### 7) initramfs pro nové jádro ----------------------------------------------
+# `dmsquash-live` moduly jsou potřeba jen pro live/ISO boot a base image je nemusí
+# mít (dodává je balíček dracut-live). Pro boot z disku stačí `ostree`.
+DRACUT_ADD="ostree"
+if dnf5 -y install dracut-live; then
+    DRACUT_ADD="ostree dmsquash-live dmsquash-live-autooverlay"
+else
+    echo "### dracut-live není k dispozici — initramfs bude jen s ostree (boot z disku OK, ISO ne)"
+fi
+
 export DRACUT_NO_XATTR=1
 /usr/bin/dracut --no-hostonly --kver "${KERNEL}" --reproducible --tmpdir /boot -v \
-    --add "ostree dmsquash-live dmsquash-live-autooverlay" \
+    --add "${DRACUT_ADD}" \
     -f "/lib/modules/${KERNEL}/initramfs.img"
 chmod 0600 "/lib/modules/${KERNEL}/initramfs.img"
 
