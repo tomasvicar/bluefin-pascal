@@ -2,7 +2,11 @@ name: build
 
 on:
   schedule:
-    - cron: "0 4 * * *"      # denně — rozbitý build chceš vidět dřív, než ho potřebuješ
+    # Týdně, ne denně: base image `bluefin-dx:stable` se hýbe zhruba týdně (tag je datovaný,
+    # denní stream má vlastní tag `stable-daily`). Stavět častěji = 6 ze 7 běhů přestaví totéž.
+    # Míň často než týdně ale nejezdi: jádro je zamčené versionlockem, takže cadence buildu
+    # je zároveň cadence bezpečnostních záplat jádra a driveru.
+    - cron: "0 4 * * 1"      # pondělí 04:00 UTC
   push:
     branches: [main]
   workflow_dispatch:
@@ -90,6 +94,19 @@ jobs:
         run: |
           cosign sign -y --key env://COSIGN_PRIVATE_KEY \
             "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      # Každý běh vytvoří novou verzi balíčku (tag ${{ github.sha }}), která by jinak
+      # zůstala navždy — u několikagigabajtového image se to nasčítá. Držíme posledních 5,
+      # aby zůstala cesta zpět na konkrétní starší image (bootc rollback umí jen o krok zpět).
+      - name: Úklid starých verzí v ghcr.io
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package: ${{ env.IMAGE_NAME }}
+          keep-n-tagged: 5
+          delete-untagged: true
+          delete-orphaned-images: true
+          exclude-tags: latest
 
       - name: Shrnutí
         if: always()
