@@ -1,0 +1,102 @@
+name: build
+
+on:
+  schedule:
+    - cron: "0 4 * * *"      # denně — rozbitý build chceš vidět dřív, než ho potřebuješ
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: bluefin-pascal
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  BASE_IMAGE: ghcr.io/ublue-os/bluefin-dx
+  BASE_TAG: stable
+  AKMODS_FLAVOR: main
+  FEDORA_VERSION: "44"
+  # secrets nejde použít přímo v `if:`, proto přes env
+  SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Uvolnit místo na runneru
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+                      /usr/local/share/powershell /usr/share/swift
+          sudo docker image prune -af || true
+          df -h /
+
+      # Kmody jsou postavené na PŘESNOU verzi jádra. Nezjišťujeme ji z base image
+      # (to je jiné jádro), ale z akmods — a base image si na ni pak přeskládáme.
+      - name: Zjistit jádro, ke kterému existují NVIDIA LTS kmody
+        id: ver
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+          NV="${{ env.AKMODS_FLAVOR }}-${{ env.FEDORA_VERSION }}"
+          KERNEL=$(skopeo inspect "docker://ghcr.io/ublue-os/akmods-nvidia-lts:${NV}" \
+                   | jq -r '.Labels["ostree.linux"]')
+          echo "Jádro z akmods-nvidia-lts:${NV} → ${KERNEL}"
+          # obě akmods image musí existovat pinnuté na tuhle verzi, jinak nemá smysl stavět
+          skopeo inspect "docker://ghcr.io/ublue-os/akmods:${NV}-${KERNEL}" > /dev/null
+          skopeo inspect "docker://ghcr.io/ublue-os/akmods-nvidia-lts:${NV}-${KERNEL}" > /dev/null
+          echo "kernel=${KERNEL}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          containerfiles: ./Containerfile
+          image: ${{ env.IMAGE_NAME }}
+          tags: latest ${{ github.sha }}
+          oci: true
+          build-args: |
+            BASE_IMAGE=${{ env.BASE_IMAGE }}
+            BASE_TAG=${{ env.BASE_TAG }}
+            AKMODS_FLAVOR=${{ env.AKMODS_FLAVOR }}
+            FEDORA_VERSION=${{ env.FEDORA_VERSION }}
+            KERNEL=${{ steps.ver.outputs.kernel }}
+
+      - name: Push do ghcr.io
+        id: push
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Podpis image je volitelný — dokud nenastavíš SIGNING_SECRET, krok se přeskočí
+      # a na stroji použij `bootc switch` BEZ --enforce-container-sigpolicy.
+      - uses: sigstore/cosign-installer@v3
+        if: ${{ env.SIGNING_SECRET != '' }}
+
+      - name: Podepsat image
+        if: ${{ env.SIGNING_SECRET != '' }}
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY \
+            "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      - name: Shrnutí
+        if: always()
+        run: |
+          {
+            echo "### Build"
+            echo "- base: \`${BASE_IMAGE}:${BASE_TAG}\`"
+            echo "- jádro: \`${{ steps.ver.outputs.kernel }}\`"
+            echo "- image: \`${IMAGE_REGISTRY}/${IMAGE_NAME}:latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
