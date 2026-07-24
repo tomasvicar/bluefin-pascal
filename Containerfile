@@ -31,7 +31,8 @@ COPY --from=akmods-nvidia /rpms        /tmp/akmods-rpms
 
 COPY build_files/ /tmp/build_files/
 
-RUN /tmp/build_files/10-kernel-nvidia-lts.sh \
+# přes `bash`, ne přímo — Git na Windows nemusí přenést execute bit
+RUN bash /tmp/build_files/10-kernel-nvidia-lts.sh \
  && rm -rf /tmp/build_files /tmp/kernel-rpms /tmp/akmods /tmp/akmods-rpms
 
 # ---------------------------------------------------------------------------
