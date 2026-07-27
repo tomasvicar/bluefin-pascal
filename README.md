@@ -34,8 +34,10 @@ ujust enroll-secure-boot-key     # heslo: universalblue
 
 ## Nasazení na stroj
 
+Image je **veřejný** — přihlašování k `ghcr.io` není potřeba, jde to i z čerstvě
+nainstalovaného systému:
+
 ```bash
-podman login ghcr.io                                  # repo je privátní
 sudo bootc switch ghcr.io/tomasvicar/bluefin-pascal:latest
 systemctl reboot
 ```

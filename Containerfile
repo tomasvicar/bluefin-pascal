@@ -35,6 +35,13 @@ COPY build_files/ /tmp/build_files/
 RUN bash /tmp/build_files/10-kernel-nvidia-lts.sh \
  && rm -rf /tmp/build_files /tmp/kernel-rpms /tmp/akmods /tmp/akmods-rpms
 
+# Labely se dědí z base image, takže by jinak hlásily jádro base image (to, které jsme
+# právě vyhodili) a název `bluefin-dx`. `bootc container lint` na to neupozorní.
+LABEL ostree.linux="${KERNEL}" \
+      org.opencontainers.image.title="bluefin-pascal" \
+      org.opencontainers.image.description="Bluefin s proprietárním NVIDIA 580 LTS driverem pro Pascal (sm_61)" \
+      org.opencontainers.image.source="https://github.com/tomasvicar/bluefin-pascal"
+
 # ---------------------------------------------------------------------------
 # TVOJE VLASTNÍ ZÁSAHY — až AŽ bude ověřeno, že rebase i rollback fungují.
 # Přidávej po jedné věci. Experimenty patří do distroboxu, ne sem.
