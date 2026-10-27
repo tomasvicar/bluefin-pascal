@@ -28,6 +28,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      actions: write   # keepalive krok na konci
 
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +108,16 @@ jobs:
           delete-untagged: true
           delete-orphaned-images: true
           exclude-tags: latest
+
+      # GitHub vypne naplánované workflow po 60 dnech bez commitu v repu
+      # (stalo se 2026-09-28 → 4 týdny bez nového image). Volání „enable“ ten
+      # odpočet vynuluje; build běží týdně, takže na 60 dní nikdy nedojde.
+      # always(): i rozbitý build má zůstat zapnutý, ať je vidět, že padá.
+      - name: Keepalive (aby GitHub nevypnul týdenní build)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/build.yml/enable"
 
       - name: Shrnutí
         if: always()
